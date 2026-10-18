@@ -415,7 +415,7 @@ function openService(id=null){
  modal(id?'Editarar servicio':'Agregar servicio',`<div class="formgrid">
  <div class="field full"><label>Servicio name</label><input id="f_name" value="${esc(s.name)}"></div>
  <div class="field"><label>Standard price</label><input id="f_price" type="number" step=".01" value="${s.price}"></div>
- <div class="field"><label>Unidad</label><select id="f_unit"><option ${s.unit==='trabajo'?'selected':''}>trabajo</option><option ${s.unit==='hora'?'selected':''}>hora</option><option ${s.unit==='pieza'?'selected':''}>pieza</option></select></div>
+ <div class="field"><label>Unidad</label><select id="f_unit"><option ${s.unit==='trabajo'?'selected':''}>trabajo</option><option ${s.unit==='hora'?'selected':''}>hora</option><option ${s.unit==='pieza'?'selected':''}>pieza</option><option ${s.unit==='metro'?'selected':''}>metro</option><option ${s.unit==='kg'?'selected':''}>kg</option><option ${s.unit==='día'?'selected':''}>día</option><option ${s.unit==='servicio'?'selected':''}>servicio</option></select></div>
  <div class="field"><label>Categoría</label><input id="f_cat" value="${esc(s.category)}"></div>
  </div><div class="actions" style="margin-top:16px"><button class="btn primary" onclick="saveService('${s.id}')">Guardar servicio</button></div>`);
 }
@@ -425,46 +425,87 @@ function saveService(id){
  const i=state.services.findIndex(x=>x.id===id);if(i>=0)state.services[i]=o;else state.services.push(o);
  addActivity((id?'Updated':'Added')+' price-book item: '+o.name);closeModal();save();
 }
-function serviceOptions(){return '<option value="">— Choose service —</option>'+state.services.map(s=>`<option value="${s.id}">${esc(s.name)} — ${money(s.price)}</option>`).join('')}
+function serviceOptions(selected=''){return '<option value="">— Choose service —</option>'+state.services.map(s=>`<option value="${s.id}" ${s.id===selected?'selected':''}>${esc(s.name)} — ${money(s.price)} / ${esc(s.unit||'trabajo')}</option>`).join('')}
 
 function openJob(id=null){
  let j=state.jobs.find(x=>x.id===id)||{id:'',customerId:'',machineId:'',serviceId:'',title:'',date:new Date().toISOString().slice(0,10),time:'08:00',duration:2,status:'Programado',price:0,notes:'',reminder:true};
- /* Older jobs may not have serviceId. Try to match their title to a Lista de precios item. */
  if(!j.serviceId && j.title){
    const match=state.services.find(s=>s.name.toLowerCase()===j.title.toLowerCase());
    if(match) j.serviceId=match.id;
  }
- modal(id?'Editarar trabajo':'Programar nuevo trabajo',`<div class="formgrid">
+ const unit=j.billingUnit || (state.services.find(s=>s.id===j.serviceId)?.unit) || 'trabajo';
+ const qty=j.quantity!=null?j.quantity:(unit==='hora'?(Number(j.duration)||1):1);
+ const rate=j.unitPrice!=null?j.unitPrice:(Number(j.price)||0);
+ modal(id?'Editar trabajo':'Agregar trabajo',`<div class="formgrid">
  <div class="field"><label>Cliente (opcional)</label><select id="f_customer">${customerOptions(j.customerId)}</select></div>
  <div class="field"><label>Máquina (opcional)</label><select id="f_machine">${machineOptions(j.machineId)}</select></div>
  <div class="field full">
-   <label>¿Qué tipo de trabajo es?</label>
+   <label>Tipo de servicio / tarifa (opcional)</label>
    <select id="f_service" onchange="jobServiceSelected()">${serviceOptions(j.serviceId)}</select>
-   <small style="display:block;margin-top:6px;color:#64748b">Elige un servicio de tu lista de precios y el precio estándar se agregará automáticamente.</small>
+   <small style="display:block;margin-top:6px;color:var(--muted)">Al elegir un servicio, se cargan su unidad y tarifa estándar. Puedes ajustarlas para este trabajo.</small>
  </div>
- <div class="field full"><label>Descripción del trabajo</label><input id="f_title" value="${esc(j.title)}" placeholder="Ej. reparación hidráulica, diagnóstico, mantenimiento"></div>
- <div class="field"><label>Date</label><input id="f_date" type="date" value="${j.date}"></div>
- <div class="field"><label>Hora</label><input id="f_time" type="time" value="${j.time}"></div>
- <div class="field"><label>¿Cuántas hours?</label><input id="f_duration" type="number" step=".5" value="${j.duration}"></div>
- <div class="field"><label>Precio de este trabajo</label><input id="f_price" type="number" step=".01" value="${j.price}"></div>
+ <div class="field full"><label>Descripción del trabajo</label><input id="f_title" value="${esc(j.title)}" placeholder="Ej. reparación, instalación, fabricación de piezas"></div>
+ <div class="field"><label>Fecha</label><input id="f_date" type="date" value="${j.date}"></div>
+ <div class="field"><label>Hora de inicio</label><input id="f_time" type="time" value="${j.time}"></div>
+ <div class="field"><label>Calcular tarifa por</label><select id="f_billingUnit" onchange="jobBillingUnitChanged()">
+ ${['hora','pieza','trabajo','metro','kg','día','servicio'].map(u=>`<option value="${u}" ${unit===u?'selected':''}>${u==='hora'?'Hora':u==='pieza'?'Pieza':u==='trabajo'?'Trabajo completo':u==='metro'?'Metro':u==='kg'?'Kilogramo':u==='día'?'Día':'Servicio'}</option>`).join('')}
+ </select></div>
+ <div class="field"><label id="f_quantityLabel">${unit==='hora'?'Cantidad de horas':unit==='pieza'?'Cantidad de piezas':'Cantidad ('+unit+')'}</label><input id="f_quantity" type="number" min="0.01" step="0.01" value="${qty}" oninput="jobRecalculateTotal()"></div>
+ <div class="field"><label id="f_unitPriceLabel">Precio por ${esc(unit)}</label><input id="f_unitPrice" type="number" min="0" step=".01" value="${rate}" oninput="jobRecalculateTotal()"></div>
+ <div class="field"><label>Total calculado</label><input id="f_price" type="number" min="0" step=".01" value="${j.price}" oninput="jobTotalManuallyChanged()"><small class="help-text">Cantidad × precio unitario. Puedes editar el total manualmente.</small></div>
  <div class="field"><label>Estado</label><select id="f_status">${['Programado','En progreso','Completado','Cancelled'].map(x=>`<option ${j.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
  <div class="field"><label><input id="f_reminder" type="checkbox" ${j.reminder!==false?'checked':''}> Recordatorio por correo/navegador</label></div>
  <div class="field full"><label>Notas</label><textarea id="f_notes">${esc(j.notes)}</textarea></div>
- </div><div class="actions" style="margin-top:16px"><button class="btn primary" onclick="saveJob('${j.id}')">Guardar trabajo</button>${id?`<button class="btn danger" onclick="deleteJob('${id}')">Eliminar</button>`:''}</div>`);
+ </div><div class="confirm-box"><b>Resumen de cobro</b><div id="f_priceSummary" style="margin-top:6px">${Number(qty)} × ${money(rate)} por ${esc(unit)} = <b>${money(j.price || qty*rate)}</b></div></div>
+ <div class="actions" style="margin-top:16px"><button class="btn primary" onclick="saveJob('${j.id}')">Guardar trabajo</button>${id?`<button class="btn danger" onclick="deleteJob('${id}')">Eliminar</button>`:''}</div>`);
+ jobRecalculateTotal();
 }
 function jobServiceSelected(){
  const sel=document.getElementById('f_service');
  const service=state.services.find(s=>s.id===sel.value);
  if(!service)return;
- document.getElementById('f_price').value=service.price;
+ document.getElementById('f_unitPrice').value=Number(service.price)||0;
+ document.getElementById('f_billingUnit').value=service.unit||'trabajo';
  const title=document.getElementById('f_title');
  if(!title.value || state.services.some(s=>s.name===title.value)) title.value=service.name;
+ jobBillingUnitChanged();
+}
+function jobBillingUnitChanged(){
+ const unit=document.getElementById('f_billingUnit').value;
+ const label=document.getElementById('f_quantityLabel');
+ const rateLabel=document.getElementById('f_unitPriceLabel');
+ if(label)label.textContent=unit==='hora'?'Cantidad de horas':unit==='pieza'?'Cantidad de piezas':unit==='trabajo'?'Cantidad de trabajos':unit==='metro'?'Cantidad de metros':unit==='kg'?'Cantidad de kilogramos':unit==='día'?'Cantidad de días':'Cantidad de servicios';
+ if(rateLabel)rateLabel.textContent='Precio por '+(unit==='kg'?'kg':unit);
+ const qty=document.getElementById('f_quantity');
+ if(qty && (unit==='trabajo'||unit==='servicio') && Number(qty.value)===0)qty.value=1;
+ jobRecalculateTotal();
+}
+function jobRecalculateTotal(){
+ const qty=Number(document.getElementById('f_quantity')?.value)||0;
+ const rate=Number(document.getElementById('f_unitPrice')?.value)||0;
+ const unit=document.getElementById('f_billingUnit')?.value||'trabajo';
+ const total=Math.round(qty*rate*100)/100;
+ const price=document.getElementById('f_price');
+ if(price)price.value=total.toFixed(2);
+ const summary=document.getElementById('f_priceSummary');
+ if(summary)summary.innerHTML=`${qty} × ${money(rate)} por ${esc(unit)} = <b>${money(total)}</b>`;
+}
+function jobTotalManuallyChanged(){
+ const qty=Number(document.getElementById('f_quantity')?.value)||0;
+ const rate=Number(document.getElementById('f_unitPrice')?.value)||0;
+ const unit=document.getElementById('f_billingUnit')?.value||'trabajo';
+ const summary=document.getElementById('f_priceSummary');
+ if(summary)summary.innerHTML=`${qty} × ${money(rate)} por ${esc(unit)} · Total ajustado: <b>${money(Number(document.getElementById('f_price').value)||0)}</b>`;
 }
 function populateMachines(){document.getElementById('f_machine').innerHTML=machineOptions('')}
 function machineOptions(selected='',cid=''){let arr=state.machines.filter(m=>!cid||m.customerId===cid);return '<option value="">— Ninguna máquina seleccionada —</option>'+arr.map(m=>`<option value="${m.id}" ${m.id===selected?'selected':''}>${esc(m.make)} ${esc(m.model)}${m.serial?' • '+esc(m.serial):''}</option>`).join('')}
 function saveJob(id){
- const o={id:id||uid(),customerId:v('f_customer'),machineId:v('f_machine'),serviceId:v('f_service'),title:v('f_title'),date:v('f_date'),time:v('f_time'),duration:Number(v('f_duration'))||1,status:v('f_status'),price:Number(v('f_price'))||0,notes:v('f_notes'),reminder:document.getElementById('f_reminder').checked,reminded:false};
+ const unit=document.getElementById('f_billingUnit').value;
+ const qty=Number(v('f_quantity'))||0;
+ const unitPrice=Number(v('f_unitPrice'))||0;
+ const o={id:id||uid(),customerId:v('f_customer'),machineId:v('f_machine'),serviceId:v('f_service'),title:v('f_title'),date:v('f_date'),time:v('f_time'),duration:unit==='hora'?qty:(Number(v('f_quantity'))||1),billingUnit:unit,quantity:qty,unitPrice, status:v('f_status'),price:Number(v('f_price'))||0,notes:v('f_notes'),reminder:document.getElementById('f_reminder').checked,reminded:false};
  if(!o.title||!o.date)return alert('Ingresa una descripción del trabajo y una fecha.');
+ if(qty<=0)return alert('La cantidad debe ser mayor que cero.');
  const old=state.jobs.find(x=>x.id===id); if(old)o.reminded=old.reminded;
  const i=state.jobs.findIndex(x=>x.id===id);if(i>=0)state.jobs[i]=o;else state.jobs.push(o);
  addActivity((id?'Updated':'Programado')+' trabajo: '+o.title);closeModal();save();checkReminders();
@@ -548,7 +589,7 @@ function showReceipt(id){
    <div><b>Estado</b><br>${statusBadge(j.status)}</div>
   </div>
   <div style="margin-top:18px"><b>Descripción del trabajo</b><p style="margin:6px 0">${esc(j.title||'')}</p></div>
-  <table style="margin-top:15px"><tr><th>Concepto</th><th>Cantidad</th><th>Precio</th><th>Total</th></tr><tr><td>${esc(service?.name||j.title||'Trabajo')}</td><td>${esc(j.duration||1)} ${j.duration==1?'hora':'horas'}</td><td>${money(j.price)}</td><td><b>${money(j.price)}</b></td></tr></table>
+  <table style="margin-top:15px"><tr><th>Concepto</th><th>Cantidad</th><th>Precio</th><th>Total</th></tr><tr><td>${esc(service?.name||j.title||'Trabajo')}</td><td>${esc(j.quantity!=null?j.quantity:(j.duration||1))} ${esc(j.billingUnit||'hora')}</td><td>${money(j.unitPrice!=null?j.unitPrice:j.price)}</td><td><b>${money(j.price)}</b></td></tr></table>
   <div class="quote-total" style="margin-top:18px">Total: ${money(j.price)}</div>
   ${j.notes?`<div style="margin-top:16px"><b>Notas</b><p style="margin:6px 0">${esc(j.notes)}</p></div>`:''}
   <div class="actions" style="margin-top:20px"><button class="btn primary" onclick="downloadReceiptPDF('${id}')">Descargar PDF</button><button class="btn primary" onclick="shareReceiptPDF('${id}')">Compartir PDF</button><button class="btn" onclick="printReceipt('${id}')">Imprimir</button></div>

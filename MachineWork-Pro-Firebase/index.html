@@ -626,6 +626,7 @@ function openJob(id=null){
  modal(id?'Editar trabajo':'Agregar trabajo',`<div class="formgrid">
  <div class="field"><label>Cliente (opcional)</label><select id="f_customer">${customerOptions(j.customerId)}</select></div>
  <div class="field"><label>Máquina (opcional)</label><select id="f_machine">${machineOptions(j.machineId)}</select></div>
+ <div class="field"><label>Número de serie (opcional)</label><input id="f_serialNumber" value="${esc(j.serialNumber||'')}" placeholder="Escribe el número de serie"></div>
  <div class="field full">
    <label>Tipo de servicio / tarifa (opcional)</label>
    <input id="f_service" list="f_serviceOptions" value="${esc(state.services.find(s=>s.id===j.serviceId)?.name||j.title||'')}" onchange="jobServiceSelected()" oninput="jobServiceSelected()" placeholder="Elige o escribe un servicio"><datalist id="f_serviceOptions">${serviceOptions()}</datalist><input type="hidden" id="f_serviceId" value="${esc(j.serviceId||'')}">
@@ -697,7 +698,7 @@ function saveJob(id){
  const unit=document.getElementById('f_billingUnit').value;
  const qty=Number(v('f_quantity'))||0;
  const unitPrice=Number(v('f_unitPrice'))||0;
- const o={id:id||uid(),customerId:v('f_customer'),machineId:v('f_machine'),serviceId:v('f_serviceId'),title:v('f_title'),date:v('f_date'),time:v('f_time'),duration:unit==='hora'?qty:(Number(v('f_quantity'))||1),billingUnit:unit,quantity:qty,unitPrice, status:v('f_status'),price:Number(v('f_price'))||0,notes:v('f_notes'),reminder:document.getElementById('f_reminder').checked,reminded:false};
+ const o={id:id||uid(),customerId:v('f_customer'),machineId:v('f_machine'),serialNumber:v('f_serialNumber'),serviceId:v('f_serviceId'),title:v('f_title'),date:v('f_date'),time:v('f_time'),duration:unit==='hora'?qty:(Number(v('f_quantity'))||1),billingUnit:unit,quantity:qty,unitPrice, status:v('f_status'),price:Number(v('f_price'))||0,notes:v('f_notes'),reminder:document.getElementById('f_reminder').checked,reminded:false};
  if(!o.title||!o.date)return alert('Ingresa una descripción del trabajo y una fecha.');
  if(qty<=0)return alert('La cantidad debe ser mayor que cero.');
  const old=state.jobs.find(x=>x.id===id); if(old)o.reminded=old.reminded;
@@ -936,3 +937,4 @@ setTimeout(()=>document.getElementById('brandSplash')?.classList.add('hide'),450
 </script>
 </body>
 </html>
+

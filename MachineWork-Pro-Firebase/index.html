@@ -612,7 +612,7 @@ function saveService(id){
  const i=state.services.findIndex(x=>x.id===id);if(i>=0)state.services[i]=o;else state.services.push(o);
  addActivity((id?'Updated':'Added')+' price-book item: '+o.name);closeModal();save();
 }
-function serviceOptions(selected=''){return '<option value="">— Choose service —</option>'+state.services.map(s=>`<option value="${s.id}" ${s.id===selected?'selected':''}>${esc(s.name)} — ${money(s.price)} / ${esc(s.unit||'trabajo')}</option>`).join('')}
+function serviceOptions(){return state.services.map(s=>`<option value="${esc(s.name)}">${money(s.price)} / ${esc(s.unit||'trabajo')}</option>`).join('')}
 
 function openJob(id=null){
  let j=state.jobs.find(x=>x.id===id)||{id:'',customerId:'',machineId:'',serviceId:'',title:'',date:new Date().toISOString().slice(0,10),time:'08:00',duration:2,status:'Programado',price:0,notes:'',reminder:true};
@@ -628,7 +628,7 @@ function openJob(id=null){
  <div class="field"><label>Máquina (opcional)</label><select id="f_machine">${machineOptions(j.machineId)}</select></div>
  <div class="field full">
    <label>Tipo de servicio / tarifa (opcional)</label>
-   <select id="f_service" onchange="jobServiceSelected()">${serviceOptions(j.serviceId)}</select>
+   <input id="f_service" list="f_serviceOptions" value="${esc(state.services.find(s=>s.id===j.serviceId)?.name||j.title||'')}" onchange="jobServiceSelected()" oninput="jobServiceSelected()" placeholder="Elige o escribe un servicio"><datalist id="f_serviceOptions">${serviceOptions()}</datalist><input type="hidden" id="f_serviceId" value="${esc(j.serviceId||'')}">
    <small style="display:block;margin-top:6px;color:var(--muted)">Al elegir un servicio, se cargan su unidad y tarifa estándar. Puedes ajustarlas para este trabajo.</small>
  </div>
  <div class="field full"><label>Descripción del trabajo</label><input id="f_title" value="${esc(j.title)}" placeholder="Ej. reparación, instalación, fabricación de piezas"></div>
@@ -648,14 +648,21 @@ function openJob(id=null){
  jobRecalculateTotal();
 }
 function jobServiceSelected(){
- const sel=document.getElementById('f_service');
- const service=state.services.find(s=>s.id===sel.value);
- if(!service)return;
- document.getElementById('f_unitPrice').value=Number(service.price)||0;
- document.getElementById('f_billingUnit').value=service.unit||'trabajo';
+ const field=document.getElementById('f_service');
+ const service=state.services.find(s=>s.name.toLowerCase()===field.value.trim().toLowerCase());
+ const serviceId=document.getElementById('f_serviceId');
  const title=document.getElementById('f_title');
- if(!title.value || state.services.some(s=>s.name===title.value)) title.value=service.name;
- jobBillingUnitChanged();
+ const previous=state.services.find(s=>s.id===serviceId.value);
+ if(service){
+  serviceId.value=service.id;
+  document.getElementById('f_unitPrice').value=Number(service.price)||0;
+  document.getElementById('f_billingUnit').value=service.unit||'trabajo';
+  if(!title.value || (previous && title.value===previous.name) || state.services.some(s=>s.name===title.value)) title.value=service.name;
+  jobBillingUnitChanged();
+  return;
+ }
+ serviceId.value='';
+ if(field.value.trim() && (!title.value || (previous && title.value===previous.name))) title.value=field.value.trim();
 }
 function jobBillingUnitChanged(){
  const unit=document.getElementById('f_billingUnit').value;
@@ -690,7 +697,7 @@ function saveJob(id){
  const unit=document.getElementById('f_billingUnit').value;
  const qty=Number(v('f_quantity'))||0;
  const unitPrice=Number(v('f_unitPrice'))||0;
- const o={id:id||uid(),customerId:v('f_customer'),machineId:v('f_machine'),serviceId:v('f_service'),title:v('f_title'),date:v('f_date'),time:v('f_time'),duration:unit==='hora'?qty:(Number(v('f_quantity'))||1),billingUnit:unit,quantity:qty,unitPrice, status:v('f_status'),price:Number(v('f_price'))||0,notes:v('f_notes'),reminder:document.getElementById('f_reminder').checked,reminded:false};
+ const o={id:id||uid(),customerId:v('f_customer'),machineId:v('f_machine'),serviceId:v('f_serviceId'),title:v('f_title'),date:v('f_date'),time:v('f_time'),duration:unit==='hora'?qty:(Number(v('f_quantity'))||1),billingUnit:unit,quantity:qty,unitPrice, status:v('f_status'),price:Number(v('f_price'))||0,notes:v('f_notes'),reminder:document.getElementById('f_reminder').checked,reminded:false};
  if(!o.title||!o.date)return alert('Ingresa una descripción del trabajo y una fecha.');
  if(qty<=0)return alert('La cantidad debe ser mayor que cero.');
  const old=state.jobs.find(x=>x.id===id); if(old)o.reminded=old.reminded;

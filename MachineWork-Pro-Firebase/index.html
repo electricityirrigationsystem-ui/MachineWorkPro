@@ -230,6 +230,7 @@ window.addEventListener('unhandledrejection', function(event) {
     <button class="active" onclick="showPage('dashboard',this)">Panel principal</button>
     <button onclick="showPage('jobs',this)">Trabajos</button>
     <button onclick="showPage('receipts',this)">Recibos</button>
+    <button onclick="showPage('payments',this)">Pagos pendientes</button>
     <button onclick="showPage('quotes',this)">Cotización rápida</button>
     <button onclick="showPage('machines',this)">Máquinas</button>
     <button onclick="showPage('customers',this)">Clientes</button>
@@ -284,6 +285,11 @@ window.addEventListener('unhandledrejection', function(event) {
   <div class="toolbar"><div><h2 style="margin:0">Trabajos disponibles</h2><div class="help-text">Selecciona un trabajo para generar su recibo.</div></div></div>
   <div id="receiptsTable"></div>
  </div>
+</section>
+
+<section id="payments" class="page">
+ <div class="topbar"><div><h1>Pagos pendientes</h1><div class="subtitle">Consulta saldos pendientes y fechas límite. Marca como pagado cuando recibas el pago.</div></div></div>
+ <div class="panel"><div id="paymentsTable"></div></div>
 </section>
 
 <section id="quotes" class="page">
@@ -642,7 +648,8 @@ function openJob(id=null){
  <div class="field"><label id="f_unitPriceLabel">Precio por ${esc(unit)}</label><input id="f_unitPrice" type="number" min="0" step=".01" value="${rate}" oninput="jobRecalculateTotal()"></div>
  <div class="field"><label>Total calculado</label><input id="f_price" type="number" min="0" step=".01" value="${j.price}" oninput="jobTotalManuallyChanged()"><small class="help-text">Cantidad × precio unitario. Puedes editar el total manualmente.</small></div>
  <div class="field"><label>Estado</label><select id="f_status">${['Programado','En progreso','Completado','Cancelled'].map(x=>`<option ${j.status===x?'selected':''}>${x}</option>`).join('')}</select></div>
- <div class="field"><label><input id="f_reminder" type="checkbox" ${j.reminder!==false?'checked':''}> Recordatorio por correo/navegador</label></div>
+ <div class="field"><label>Estado de pago</label><select id="f_paymentStatus"><option value="Pendiente" ${(j.paymentStatus||'Pendiente')==='Pendiente'?'selected':''}>Pendiente</option><option value="Pagado" ${j.paymentStatus==='Pagado'?'selected':''}>Pagado</option></select></div>
+ <div class="field"><label>Fecha límite de pago</label><input id="f_paymentDueDate" type="date" value="${esc(j.paymentDueDate||'')}"></div> <div class="field"><label><input id="f_reminder" type="checkbox" ${j.reminder!==false?'checked':''}> Recordatorio por correo/navegador</label></div>
  <div class="field full"><label>Notas</label><textarea id="f_notes">${esc(j.notes)}</textarea></div>
  </div><div class="confirm-box"><b>Resumen de cobro</b><div id="f_priceSummary" style="margin-top:6px">${Number(qty)} × ${money(rate)} por ${esc(unit)} = <b>${money(j.price || qty*rate)}</b></div></div>
  <div class="actions" style="margin-top:16px"><button class="btn primary" onclick="saveJob('${j.id}')">Guardar trabajo</button>${id?`<button class="btn danger" onclick="deleteJob('${id}')">Eliminar</button>`:''}</div>`);
@@ -698,7 +705,7 @@ function saveJob(id){
  const unit=document.getElementById('f_billingUnit').value;
  const qty=Number(v('f_quantity'))||0;
  const unitPrice=Number(v('f_unitPrice'))||0;
- const o={id:id||uid(),customerId:v('f_customer'),machineId:v('f_machine'),serialNumber:v('f_serialNumber'),serviceId:v('f_serviceId'),title:v('f_title'),date:v('f_date'),time:v('f_time'),duration:unit==='hora'?qty:(Number(v('f_quantity'))||1),billingUnit:unit,quantity:qty,unitPrice, status:v('f_status'),price:Number(v('f_price'))||0,notes:v('f_notes'),reminder:document.getElementById('f_reminder').checked,reminded:false};
+ const o={id:id||uid(),customerId:v('f_customer'),machineId:v('f_machine'),serialNumber:v('f_serialNumber'),paymentStatus:v('f_paymentStatus'),paymentDueDate:v('f_paymentDueDate'),serviceId:v('f_serviceId'),title:v('f_title'),date:v('f_date'),time:v('f_time'),duration:unit==='hora'?qty:(Number(v('f_quantity'))||1),billingUnit:unit,quantity:qty,unitPrice, status:v('f_status'),price:Number(v('f_price'))||0,notes:v('f_notes'),reminder:document.getElementById('f_reminder').checked,reminded:false};
  if(!o.title||!o.date)return alert('Ingresa una descripción del trabajo y una fecha.');
  if(qty<=0)return alert('La cantidad debe ser mayor que cero.');
  const old=state.jobs.find(x=>x.id===id); if(old)o.reminded=old.reminded;
@@ -752,8 +759,19 @@ function renderDashboard(){
 } 
 function renderAll(){
  // Each view renders independently so a dashboard issue cannot leave other tabs blank.
- const renderers=[renderDashboard,renderJobs,renderQuotes,renderMachines,renderCustomers,renderServices,renderCalendar,renderSettings,renderReceipts];
+ const renderers=[renderDashboard,renderJobs,renderPayments,renderQuotes,renderMachines,renderCustomers,renderServices,renderCalendar,renderSettings,renderReceipts];
  renderers.forEach(fn=>{try{fn()}catch(err){console.error('CCI render error in '+fn.name,err)}});
+}
+function setJobPaid(id){
+ const job=state.jobs.find(x=>x.id===id); if(!job)return;
+ job.paymentStatus='Pagado'; job.paymentPaidDate=new Date().toISOString().slice(0,10); save();
+}
+function renderPayments(){
+ const el=document.getElementById('paymentsTable'); if(!el)return;
+ const pending=state.jobs.filter(j=>(j.paymentStatus||'Pendiente')!=='Pagado');
+ if(!pending.length){el.innerHTML='<div class="empty">No hay pagos pendientes registrados.</div>';return;}
+ pending.sort((a,b)=>(a.paymentDueDate||'9999-12-31').localeCompare(b.paymentDueDate||'9999-12-31'));
+ el.innerHTML=`<table><tr><th>Cliente</th><th>Trabajo</th><th>Fecha límite</th><th>Importe</th><th></th></tr>${pending.map(j=>`<tr><td>${esc(customerNombre(j.customerId)||'—')}</td><td><b>${esc(j.title||'Trabajo')}</b><br><small>${fmtDate(j.date)}</small></td><td>${j.paymentDueDate?fmtDate(j.paymentDueDate):'<span class="badge amber">Sin fecha límite</span>'}</td><td><b>${money(j.price)}</b></td><td><button class="btn primary" onclick="setJobPaid('${esc(j.id)}')">Marcar pagado</button> <button class="btn" onclick="openJob('${esc(j.id)}')">Editar</button></td></tr>`).join('')}</table>`;
 }
 function renderJobs(){
  let arr=[...state.jobs];let q=(document.getElementById('trabajoBuscar')?.value||'').toLowerCase(),f=document.getElementById('trabajoFiltrar')?.value||'';
@@ -937,4 +955,6 @@ setTimeout(()=>document.getElementById('brandSplash')?.classList.add('hide'),450
 </script>
 </body>
 </html>
+
+
 
